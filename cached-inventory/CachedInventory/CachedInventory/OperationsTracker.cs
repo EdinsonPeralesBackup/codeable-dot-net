@@ -2,12 +2,12 @@ namespace CachedInventory;
 
 using System.Text.Json;
 
+
+
 public interface IOperationsTracker
 {
   Task<int[]> GetActionsByProductId(int productId);
   Task<string> CreateOperationsTracker(DateTime time, int productId, int action);
-
-  Task FailUpdateByOperationId(string operationId);
   Task RemoveCache();
 }
 
@@ -47,20 +47,6 @@ public class OperationsTracker : IOperationsTracker
         };
         operations.Add(newOperation);
         return newOperation.Id;
-      });
-
-
-  public async Task FailUpdateByOperationId(string operationId) =>
-    await UpdateOperations(
-      operations =>
-      {
-        var targetOperation = operations.FirstOrDefault(op => op.Id == operationId);
-        if (targetOperation != null)
-        {
-          targetOperation.Ok = false;
-        }
-
-        return 0;
       });
 
   public async Task RemoveCache() =>
