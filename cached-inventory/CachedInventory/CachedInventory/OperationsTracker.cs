@@ -6,7 +6,7 @@
   {
     Task<int[]> GetActionsByProductId(int productId);
     Task<string> CreateOperationsTracker(DateTime time, int productId,int action);
-    Task FailUpdateByProductId(int productId);
+
     Task FailUpdateByOperationId(string operationId);
     Task RemoveCache();
   }
@@ -53,15 +53,6 @@
         return newOperation.Id;
     }
 
-    public async Task FailUpdateByProductId(int productId)
-    {
-        var operations = await ReadOperationsFromFile();
-        foreach (var operation in operations.Where(op => op.ProductId == productId))
-        {
-            operation.Ok = false;
-        }
-        await WriteOperationsToFile(operations);
-    }
 
     public async Task FailUpdateByOperationId(string operationId)
     {
