@@ -60,7 +60,7 @@ public record TestSetup(string Url) : IAsyncDisposable
         var response = await Client.PostAsync($"{Url}stock/restock", restockRequestContent);
         stopwatch.Stop();
         requestDurations.Add(stopwatch.ElapsedMilliseconds);
-        Assert.True(response.IsSuccessStatusCode, $"Error al reponer el stock del producto {productId}.");
+        Assert.True(response.IsSuccessStatusCode, $"Error al reponer el stock del producto {productId} {response.StatusCode}.");
         return;
       }
       case < 0:
