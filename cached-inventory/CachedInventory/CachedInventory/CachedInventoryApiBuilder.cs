@@ -59,6 +59,7 @@ public record ProductCacheItem(int ProductId, int Stock);
 public static class CachedInventoryApiBuilder
 {
   private static readonly ConcurrentDictionary<int, ProductCacheItem> ProductCache = new();
+  private static readonly ConcurrentDictionary<int, SemaphoreSlim> ProductLocks = new();
 
   public static WebApplication Build(string[] args)
   {
@@ -102,19 +103,28 @@ public static class CachedInventoryApiBuilder
           [FromServices] ILegacySyncService syncService,
           [FromBody] RetrieveStockRequest req) =>
         {
-          var stock = await GetStockWithCache(client, tracker, req.ProductId);
-          if (stock < req.Amount)
+          var semaphore = ProductLocks.GetOrAdd(req.ProductId, _ => new(1));
+          try
           {
-            return Results.BadRequest("Not enough stock.");
-          }
+            await semaphore.WaitAsync();
+            var stock = await GetStockWithCache(client, tracker, req.ProductId);
+            if (stock < req.Amount)
+            {
+              return Results.BadRequest("Not enough stock.");
+            }
 
-          await tracker.CreateOperationsTracker(DateTime.UtcNow, req.ProductId, -req.Amount);
-          ProductCache.AddOrUpdate(
-            req.ProductId,
-            new ProductCacheItem(req.ProductId, -req.Amount),
-            (_, item) => item with { Stock = item.Stock - req.Amount });
-          syncService.MarkForUpdate(req.ProductId);
-          return Results.Ok();
+            await tracker.CreateOperationsTracker(DateTime.UtcNow, req.ProductId, -req.Amount);
+            ProductCache.AddOrUpdate(
+              req.ProductId,
+              new ProductCacheItem(req.ProductId, -req.Amount),
+              (_, item) => item with { Stock = item.Stock - req.Amount });
+            syncService.MarkForUpdate(req.ProductId);
+            return Results.Ok();
+          }
+          finally
+          {
+            semaphore.Release();
+          }
         })
       .WithName("RetrieveStock")
       .WithOpenApi();
@@ -128,13 +138,22 @@ public static class CachedInventoryApiBuilder
           [FromServices] ILegacySyncService syncService,
           [FromBody] RestockRequest req) =>
         {
-          await tracker.CreateOperationsTracker(DateTime.UtcNow, req.ProductId, req.Amount);
-          syncService.MarkForUpdate(req.ProductId);
-          ProductCache.AddOrUpdate(
-            req.ProductId,
-            new ProductCacheItem(req.ProductId, req.Amount),
-            (_, item) => item with { Stock = item.Stock + req.Amount });
-          return Results.Ok();
+          var semaphore = ProductLocks.GetOrAdd(req.ProductId, _ => new(1));
+          try
+          {
+            await semaphore.WaitAsync();
+            await tracker.CreateOperationsTracker(DateTime.UtcNow, req.ProductId, req.Amount);
+            syncService.MarkForUpdate(req.ProductId);
+            ProductCache.AddOrUpdate(
+              req.ProductId,
+              new ProductCacheItem(req.ProductId, req.Amount),
+              (_, item) => item with { Stock = item.Stock + req.Amount });
+            return Results.Ok();
+          }
+          finally
+          {
+            semaphore.Release();
+          }
         })
       .WithName("Restock")
       .WithOpenApi();
