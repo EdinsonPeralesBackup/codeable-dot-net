@@ -25,10 +25,6 @@ public class TrackerLegacySync(IWarehouseStockSystemClient client, IOperationsTr
       toUpdate = updateQueue.Where(kv => kv.Value < lastUpdatedAt).Select(kv => kv.Key).ToArray();
       lastUpdatedAt = DateTime.UtcNow;
     }
-    catch (Exception ex)
-    {
-      return;
-    }
     finally
     {
       semaphore.Release();
