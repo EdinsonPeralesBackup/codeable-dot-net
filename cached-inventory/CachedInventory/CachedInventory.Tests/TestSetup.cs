@@ -40,6 +40,7 @@ public record TestSetup(string Url) : IAsyncDisposable
     {
       requestDurations.Add(stopwatch.ElapsedMilliseconds);
     }
+
     Assert.True(response.IsSuccessStatusCode, $"Error al obtener el stock del producto {productId}.");
     return int.Parse(content);
   }
@@ -60,7 +61,9 @@ public record TestSetup(string Url) : IAsyncDisposable
         var response = await Client.PostAsync($"{Url}stock/restock", restockRequestContent);
         stopwatch.Stop();
         requestDurations.Add(stopwatch.ElapsedMilliseconds);
-        Assert.True(response.IsSuccessStatusCode, $"Error al reponer el stock del producto {productId} {response.StatusCode}.");
+        Assert.True(
+          response.IsSuccessStatusCode,
+          $"Error al reponer el stock del producto {productId} {response.StatusCode}.");
         return;
       }
       case < 0:

@@ -14,73 +14,93 @@ public interface IOperationsTracker
 public class OperationsTracker : IOperationsTracker
 {
   private static readonly string FileName = "operations-tracker.json";
+  private static readonly SemaphoreSlim Semaphore = new(1);
 
   public async Task<int[]> GetActionsByProductId(int productId)
   {
     try
     {
+      await Semaphore.WaitAsync();
       var operations = await ReadOperationsFromFile();
       return operations
-        .Where(op => op.ProductId == productId && op.Ok && op.InCache)
+        .Where(op => op.ProductId == productId && op is { Ok: true, InCache: true })
         .Select(op => op.Action)
         .ToArray();
     }
     catch
     {
-      return Array.Empty<int>();
+      return [];
+    }
+    finally
+    {
+      Semaphore.Release();
     }
   }
 
-  public async Task<string> CreateOperationsTracker(DateTime time, int productId, int action)
-  {
-    var operations = await ReadOperationsFromFile();
-    var newOperation = new Operation
-    {
-      Id = Guid.NewGuid().ToString(), Time = time, ProductId = productId, Action = action
-    };
-    operations.Add(newOperation);
-    await WriteOperationsToFile(operations);
-    return newOperation.Id;
-  }
+  public async Task<string> CreateOperationsTracker(DateTime time, int productId, int action) =>
+    await UpdateOperations(
+      operations =>
+      {
+        var newOperation = new Operation
+        {
+          Id = Guid.NewGuid().ToString(), Time = time, ProductId = productId, Action = action
+        };
+        operations.Add(newOperation);
+        return newOperation.Id;
+      });
 
 
-  public async Task FailUpdateByOperationId(string operationId)
-  {
-    var operations = await ReadOperationsFromFile();
-    var targetOperation = operations.FirstOrDefault(op => op.Id == operationId);
-    if (targetOperation != null)
-    {
-      targetOperation.Ok = false;
-      await WriteOperationsToFile(operations);
-    }
-  }
+  public async Task FailUpdateByOperationId(string operationId) =>
+    await UpdateOperations(
+      operations =>
+      {
+        var targetOperation = operations.FirstOrDefault(op => op.Id == operationId);
+        if (targetOperation != null)
+        {
+          targetOperation.Ok = false;
+        }
 
-  public async Task RemoveCache()
-  {
-    var operations = await ReadOperationsFromFile();
-    foreach (var operation in operations)
-    {
-      operation.InCache = false;
-    }
+        return 0;
+      });
 
-    await WriteOperationsToFile(operations);
-  }
+  public async Task RemoveCache() =>
+    await UpdateOperations(
+      operations =>
+      {
+        foreach (var operation in operations)
+        {
+          operation.InCache = false;
+        }
+
+        return 0;
+      });
 
   private async Task<List<Operation>> ReadOperationsFromFile()
   {
     if (!File.Exists(FileName))
     {
-      return new();
+      return [];
     }
 
     var json = await File.ReadAllTextAsync(FileName);
-    return JsonSerializer.Deserialize<List<Operation>>(json) ?? new List<Operation>();
+    return JsonSerializer.Deserialize<List<Operation>>(json) ?? [];
   }
 
-  private async Task WriteOperationsToFile(List<Operation> operations)
+  private async Task<T> UpdateOperations<T>(Func<List<Operation>, T> updater)
   {
-    var json = JsonSerializer.Serialize(operations, new JsonSerializerOptions { WriteIndented = true });
-    await File.WriteAllTextAsync(FileName, json);
+    try
+    {
+      await Semaphore.WaitAsync();
+      var operations = await ReadOperationsFromFile();
+      var returnValue = updater(operations);
+      var json = JsonSerializer.Serialize(operations, new JsonSerializerOptions { WriteIndented = true });
+      await File.WriteAllTextAsync(FileName, json);
+      return returnValue;
+    }
+    finally
+    {
+      Semaphore.Release();
+    }
   }
 
   private class Operation
